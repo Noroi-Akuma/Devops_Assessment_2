@@ -1,0 +1,110 @@
+- name: Launch and Configure Staging instance
+  hosts: localhost
+  connection: local
+  # variables to be used in the playbook - making it easier to change values
+  vars:
+    instance_name: Assessment_2_Staging
+    key_name: flask_running_deploy_key
+    instance_type: t2.medium
+    security_group: flask_running_deploy_sg
+    image_id: ami-0866a3c8686eaeeba
+    region: us-east-1
+    ansible_ssh_private_key_file: ec2_key.pem
+
+  tasks:
+    - name: Launch T2 medium instance on EC2
+      ec2_instance:
+        name: "{{ instance_name }}"
+        key_name: "{{ key_name }}"
+        instance_type: "{{ instance_type }}"
+        security_group: "{{ security_group }}"
+        image_id: "{{ image_id }}"
+        region: "{{ region }}"
+        wait: yes
+      register: staging_instance
+
+    - name: Add new instance to host group
+      add_host:
+        hostname: "{{ staging_instance.instances[0].public_ip_address }}"
+        groupname: ec2_staging
+
+    - name: Wait for SSH to come up
+      wait_for:
+        host: "{{ staging_instance.instances[0].public_ip_address }}"
+        port: 22
+        delay: 20
+        timeout: 320
+        state: started
+
+- name: Configure Staging instance
+  hosts: ec2_staging
+  vars:
+    ansible_ssh_private_key_file: ec2_key.pem
+    remote_ec2_user: ubuntu
+  remote_user: "{{ remote_ec2_user }}"
+  become: yes
+  become_method: sudo
+
+  tasks:
+    - name: Add the Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu jammy stable
+        state: present
+
+    - name: Update apt packages and install docker-ce
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: true
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: "{{ remote_ec2_user }}"
+        groups: docker
+        append: yes
+
+    - name: Install curl
+      apt:
+        name: curl
+        state: present
+        update_cache: true
+
+    - name: Install kubectl
+      shell: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      args:
+        executable: /bin/bash
+
+    - name: Install conntrack (required for Minikube networking)
+      apt:
+        name: conntrack
+        state: present
+
+    - name: Download Minikube binary
+      shell: |
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        install minikube-linux-amd64 /usr/local/bin/minikube
+      args:
+        executable: /bin/bash
+
+    - name: Start Minikube (using Docker driver)
+      shell: |
+        minikube start --driver=docker
+      args:
+        executable: /bin/bash
+
+
+    
+
