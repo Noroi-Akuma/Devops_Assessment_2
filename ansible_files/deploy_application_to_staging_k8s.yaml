@@ -1,0 +1,132 @@
+- name: Ensure staging instances are running and inventory is updated
+  hosts: localhost
+  gather_facts: no
+  vars:
+    instance_name: Staging_k8s
+    region: us-east-1
+    group: ec2_staging
+
+  tasks:
+    - name: Gather facts to check if the staging instance already exists
+      ec2_instance_info:
+        region: "{{ region }}"
+        filters:
+          instance-state-name: running
+          tag:Name: "{{ instance_name }}"
+      register: ec2_exists
+
+    - name: Fail if no running instances are found
+      fail:
+        msg: "No running staging instances found. Please provision the staging environment."
+      when: ec2_exists.instances | length == 0
+
+    - name: Update inventory with dynamic public IPs
+      add_host:
+        name: "{{ item.public_ip_address }}"
+        groups: "{{ group }}"
+      loop: "{{ ec2_exists.instances }}"
+      when: item.public_ip_address is defined
+
+- name: Deploy Application on Staging Instance
+  vars:
+    ansible_ssh_private_key_file: ec2_key.pem
+    remote_ec2_user: ubuntu
+    group: ec2_staging
+  vars_files:
+    - vault.yml
+  hosts: "{{ group }}"
+  remote_user: "{{ remote_ec2_user }}"
+  become: yes
+  become_method: sudo
+
+  tasks:
+
+  - name: Delete existing kubectl secret for the docker registry
+    command: kubectl delete secret docker-hub-secret
+    ignore_errors: yes
+
+  # TODO: Create kubectl secret for the docker registry Look at the kubernetes lab to see the command how to create a secret for the docker registry and then use the vault_docker_hub_username and vault_docker_hub_token variables in ansible to create the secret
+  - name: Create kubectl secret for the docker registry
+    command:  >
+        kubectl create secret docker-registry docker-hub-secret
+        --docker-server=https://index.docker.io/v1/
+        --docker-username={{ vault_docker_hub_username }}
+        --docker-password={{ vault_docker_hub_token }}
+        --docker-email={{ vault_docker_hub_email }}
+
+
+# copy k8s-configmap.yaml file to k8s
+# TODO: Create an ansible copy task to copy the k8s-configmap.yaml file to the home/ubuntu directory on the staging instance
+  - name: Copy k8s-configmap.yaml file
+      - name: Copy k8s-configmap.yaml file to staging server
+    copy:
+      src: k8s-configmap.yaml
+      dest: /home/ubuntu/k8s-configmap.yaml
+      owner: ubuntu
+      group: ubuntu
+      mode: '0644'
+
+
+
+  - name: Apply k8s-configmap.yaml file
+    kubernetes.core.k8s:
+        state: present
+        namespace: default
+        src: /home/ubuntu/k8s-configmap.yaml
+
+# copy k8s-deployment.yaml file to k8s
+# TODO: Create an ansible copy task to copy the k8s-deployment.yaml file to the home/ubuntu directory on the staging instance
+  - name : Copy k8s-deployment.yaml file
+      - name: Copy k8s-deployment.yaml file to staging server
+    copy:
+      src: k8s-deployment.yaml
+      dest: /home/ubuntu/k8s-deployment.yaml
+      owner: ubuntu
+      group: ubuntu
+      mode: '0644'
+
+
+  - name: Apply k8s-deployment.yaml file
+    kubernetes.core.k8s:
+        state: present
+        namespace: default
+        src: /home/ubuntu/k8s-deployment.yaml
+
+
+# rolling update with user defined tag
+# if no tag is provided, the default tag is latest
+  - name: Set default tag
+    set_fact:
+      tag: latest
+    when: tag is not defined
+
+# to use the tag variable, you need to pass it as an extra variable when running the playbook
+# ansible-playbook deploy_application_to_staging_k8s.yaml --extra-vars "tag=latest"
+
+# TODO: Add a task to perform a rolling update on the k8s deployment with the user-defined tag. The tag variable comes from ansible.
+# You will need to mirror the command from the kubernetes lab to perform a rolling update on the k8s deployment
+  - name: Rolling update
+    shell:  |
+        kubectl set image deployment/<your-deployment-name> <container-name>=your-dockerhub-username/your-image-name:{{ tag }} --record
+      args:
+        executable: /bin/bash
+
+
+  # copy k8s-service.yaml file to k8s
+  # TODO: Create an ansible copy task to copy the k8s-service.yaml file to the home/ubuntu directory on the staging instance
+  - name : Copy k8s-service.yaml file
+    copy:
+        - name: Copy k8s-service.yaml file to staging server
+    copy:
+      src: k8s-service.yaml
+      dest: /home/ubuntu/k8s-service.yaml
+      owner: ubuntu
+      group: ubuntu
+      mode: '0644'
+
+
+  - name: Apply k8s-service.yaml file
+    kubernetes.core.k8s:
+        state: present
+        namespace: default
+        src: /home/ubuntu/k8s-service.yaml

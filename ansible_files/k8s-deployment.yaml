@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-running-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: flask-running-app
+  template:
+    metadata:
+      labels:
+        app: flask-running-app
+    spec:
+      containers:
+      - name: flask-running-app
+        image: noroi/flask-running-app:latest
+        ports:
+        - containerPort: 8080
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+      imagePullSecrets:
+        - name: docker-hub-secret
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
