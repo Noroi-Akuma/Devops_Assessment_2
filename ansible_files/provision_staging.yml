@@ -1,18 +1,17 @@
 - name: Launch and Configure Staging instance
   hosts: localhost
   connection: local
-  # variables to be used in the playbook - making it easier to change values
   vars:
     instance_name: Assessment_2_Staging
     key_name: flask_running_deploy_key
     instance_type: t2.medium
     security_group: flask_running_deploy_sg
-    image_id: ami-0866a3c8686eaeeba
+    image_id: ami-0866a3c8686eaeeba  # <-- Make sure this is Ubuntu 22.04!
     region: us-east-1
     ansible_ssh_private_key_file: ec2_key.pem
 
   tasks:
-    - name: Launch T2 medium instance on EC2
+    - name: Launch EC2 instance
       ec2_instance:
         name: "{{ instance_name }}"
         key_name: "{{ key_name }}"
@@ -46,23 +45,40 @@
   become_method: sudo
 
   tasks:
-    - name: Add the Docker GPG key
+    - name: Check that we are running on Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == "Debian"
+          - ansible_facts['distribution'] == "Ubuntu"
+        fail_msg: "This playbook only supports Ubuntu."
+
+    - name: Install Docker dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Add Docker GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
 
-    - name: Add Docker Repository
+    - name: Add Docker APT repository
       apt_repository:
         repo: deb https://download.docker.com/linux/ubuntu jammy stable
         state: present
 
-    - name: Update apt packages and install docker-ce
+    - name: Install Docker CE
       apt:
         name: docker-ce
         state: latest
-        update_cache: true
+        update_cache: yes
 
-    - name: Ensure Docker service is running
+    - name: Ensure Docker service is running and enabled
       service:
         name: docker
         state: started
@@ -74,37 +90,33 @@
         groups: docker
         append: yes
 
-    - name: Install curl
-      apt:
-        name: curl
-        state: present
-        update_cache: true
-
-    - name: Install kubectl
-      shell: |
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-      args:
-        executable: /bin/bash
-
-    - name: Install conntrack (required for Minikube networking)
+    - name: Install conntrack (needed for Minikube networking)
       apt:
         name: conntrack
         state: present
 
+    - name: Download kubectl
+      shell: |
+        set -e
+        curl -LO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      args:
+        executable: /bin/bash
+
     - name: Download Minikube binary
       shell: |
-        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        set -e
+        curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
         install minikube-linux-amd64 /usr/local/bin/minikube
+        rm minikube-linux-amd64
       args:
         executable: /bin/bash
 
-    - name: Start Minikube (using Docker driver)
+    - name: Start Minikube using Docker driver
       shell: |
+        set -e
+        newgrp docker <<EONG
         minikube start --driver=docker
+        EONG
       args:
         executable: /bin/bash
-
-
-    
-
