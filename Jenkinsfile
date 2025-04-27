@@ -64,7 +64,7 @@ pipeline {
             steps {
                 script {
                     // Log into DockerHub (replace with your DockerHub credentials)
-                    sh 'docker login -u noroi -p D@rk_L0rd@10'
+                    sh 'docker login -u mydockerhubusername -p mydockerhubpassword'
 
                     // Push Docker image to DockerHub
                     sh 'docker push my-fastapi-app:${APP_VERSION}'
