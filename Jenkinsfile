@@ -2,16 +2,23 @@ pipeline {
     agent any
 
     environment {
-        // Define your environment variables here (e.g., Python version)
+        // Define variables
         PYTHON_VERSION = "3.8"
         APP_VERSION = "1.0.0"
+        DOCKER_HUB_TOKEN = credentials('docker-hub-token')
+        VAULT_PW = credentials('ansible_vault')
+    }
+
+    triggers {
+        pollSCM('* * * * *') // Poll every minute
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                // Checkout the source code from your repository
-                checkout scm
+                script {
+                    git branch: 'main', credentialsId: '<yourCredentialsId>', url: '<yourGitLink>'
+                }
             }
         }
 
@@ -51,23 +58,25 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Docker Build and Push') {
             steps {
                 script {
-                    // Build Docker image if you're using Docker
-                    sh 'docker build -t my-fastapi-app:${APP_VERSION} .'
+                    sh 'docker compose build'
+                    sh 'docker tag <yourImageName> <yourDockerUsername>/<yourDockerRepoName>:latest'
+                    sh "docker tag <yourImageName> <yourDockerUsername>/<yourDockerRepoName>:v1.${BUILD_NUMBER}"
+                    sh "echo $DOCKER_HUB_TOKEN | docker login -u <yourDockerUsername> --password-stdin"
+                    sh "docker push <yourDockerUsername>/<yourDockerRepoName>:v1.${BUILD_NUMBER}"
+                    sh 'docker push <yourDockerUsername>/<yourDockerRepoName>:latest'
                 }
             }
         }
 
-        stage('Push Docker Image') {
+        stage('Deploy to Staging') {
             steps {
-                script {
-                    // Log into DockerHub (replace with your DockerHub credentials)
-                    sh 'docker login -u mydockerhubusername -p mydockerhubpassword'
-
-                    // Push Docker image to DockerHub
-                    sh 'docker push my-fastapi-app:${APP_VERSION}'
+                dir('ansible_files') {
+                    sh 'cp /var/lib/jenkins/ec2_key.pem $WORKSPACE/ansible_files/ec2_key.pem'
+                    sh 'chmod 600 $WORKSPACE/ansible_files/ec2_key.pem'
+                    sh 'echo "$VAULT_PW"  | ansible-playbook --ask-vault-pass --extra-vars tag=v1.$BUILD_NUMBER deploy_application_to_staging_k8s.yaml'
                 }
             }
         }
