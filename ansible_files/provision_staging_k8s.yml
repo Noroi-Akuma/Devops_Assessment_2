@@ -72,19 +72,35 @@
         state: present
       become: yes
 
+    - name: Install Minikube dependencies
+      apt:
+          name:
+            - conntrack
+            - ipset
+            - socat
+            - ebtables
+            - ethtool
+            - kubeadm
+          state: present
+          update_cache: true
+
     - name: Download Minikube
-      shell: curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+      get_url:
+        url: https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+        dest: /usr/local/bin/minikube
+        mode: '0755'
+        retries: 3
+        delay: 5
+        timeout: 60
 
-    - name: Install Minikube
-      become: yes
-      shell: install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
-
-    - name: Download kubectl
-      shell: curl -LO https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl
-
-    - name: Install kubectl
-      become: yes
-      shell: install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    - name: Download kubectl binary
+      get_url:
+        url: https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+        retries: 3
+        delay: 5
+        timeout: 60
 
     - name: Start Minikube
       shell: minikube start --extra-config=kubeadm.ignore-preflight-errors=NumCPU --force --cpus 1
