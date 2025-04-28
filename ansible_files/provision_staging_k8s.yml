@@ -105,3 +105,50 @@
     - name: Start Minikube
       shell: minikube start --extra-config=kubeadm.ignore-preflight-errors=NumCPU --force --cpus 1
 
+    # Task to create a Kubernetes deployment
+    - name: Create Kubernetes Deployment
+      kubernetes.core.k8s:
+        kubeconfig: /root/.kube/config  # Ensure the kubeconfig is set correctly
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: flask-deployment
+            labels:
+              app: flask
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: flask
+            template:
+              metadata:
+                labels:
+                  app: flask
+              spec:
+                containers:
+                  - name: flask-app
+                    image: flask:latest
+                    ports:
+                      - containerPort: 5000
+
+    # Task to create a Kubernetes service
+    - name: Create Kubernetes Service
+      kubernetes.core.k8s:
+        kubeconfig: /root/.kube/config
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: flask-service
+          spec:
+            selector:
+              app: flask
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 5000
+            type: LoadBalancer
+
