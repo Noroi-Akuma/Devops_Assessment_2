@@ -5,14 +5,14 @@
   vars:
     instance_name: Staging_k8s
     key_name: flask_running_deploy_key
-    instance_type: t2.medium
+    instance_type: t2.small
     security_group: flask_running_deploy_sg
     image_id: ami-0866a3c8686eaeeba
     region: us-east-1
     ansible_ssh_private_key_file: ec2_key.pem
 
   tasks:
-    - name: Launch T2 medium instance on EC2
+    - name: Launch T2 small instance on EC2
       ec2_instance:
         name: "{{ instance_name }}"
         key_name: "{{ key_name }}"
@@ -72,83 +72,20 @@
         state: present
       become: yes
 
-    - name: Install Minikube dependencies
-      apt:
-          name:
-            - conntrack
-            - ipset
-            - socat
-            - ebtables
-            - ethtool
-            - kubeadm
-          state: present
-          update_cache: true
-
     - name: Download Minikube
-      get_url:
-        url: https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
-        dest: /usr/local/bin/minikube
-        mode: '0755'
-        retries: 3
-        delay: 5
-        timeout: 60
+      shell: curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
 
-    - name: Download kubectl binary
-      get_url:
-        url: https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl
-        dest: /usr/local/bin/kubectl
-        mode: '0755'
-        retries: 3
-        delay: 5
-        timeout: 60
+    - name: Install Minikube
+      become: yes
+      shell: install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
+
+    - name: Download kubectl
+      shell: curl -LO https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl
+
+    - name: Install kubectl
+      become: yes
+      shell: install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
     - name: Start Minikube
       shell: minikube start --extra-config=kubeadm.ignore-preflight-errors=NumCPU --force --cpus 1
-
-    # Task to create a Kubernetes deployment
-    - name: Create Kubernetes Deployment
-      kubernetes.core.k8s:
-        kubeconfig: /root/.kube/config  # Ensure the kubeconfig is set correctly
-        state: present
-        definition:
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: flask-deployment
-            labels:
-              app: flask
-          spec:
-            replicas: 2
-            selector:
-              matchLabels:
-                app: flask
-            template:
-              metadata:
-                labels:
-                  app: flask
-              spec:
-                containers:
-                  - name: flask-app
-                    image: flask:latest
-                    ports:
-                      - containerPort: 5000
-
-    # Task to create a Kubernetes service
-    - name: Create Kubernetes Service
-      kubernetes.core.k8s:
-        kubeconfig: /root/.kube/config
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: flask-service
-          spec:
-            selector:
-              app: flask
-            ports:
-              - protocol: TCP
-                port: 80
-                targetPort: 5000
-            type: LoadBalancer
 
